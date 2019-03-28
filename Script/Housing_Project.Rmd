@@ -1,0 +1,54 @@
+---
+title: "Main_Script_Housing_Prices"
+author: "Aditya Lahiri"
+date: "March 28, 2019"
+output: pdf_document
+---
+## Load the libraries
+```{r}
+library(ggplot2)
+library(dplyr)
+```
+
+
+## Load the data
+```{r setup, include=FALSE}
+train_df = read.csv("C:/Users/adi44/Desktop/ATM/Spring 2019/Stat689-603/Project/house-prices-advanced-regression-techniques/STAT689/Data/train.csv", stringsAsFactors = FALSE)
+
+test_df=read.csv("C:/Users/adi44/Desktop/ATM/Spring 2019/Stat689-603/Project/house-prices-advanced-regression-techniques/STAT689/Data/test.csv", stringsAsFactors = FALSE)
+```
+
+## Data Preprocessing
+
+Let's find out all the features in the training set
+```{r}
+str(train_df)
+```
+
+Remove the ID column from training and test set as it wont be used for modeling
+```{r}
+train_ID = train_df$Id
+test_ID = test_df$Id
+train_df=select(train_df,-c(1))
+test_df=select(test_df,-c(1))
+```
+
+Analyze the dependent variable SalesPrice
+```{r}
+qplot(SalePrice, data = train_df, bins = 50, main = "Right skewed distribution")
+
+```
+
+We need to fix the skew, so we log transform the dependent variable to make the
+distribution closer to normal. 
+
+```{r}
+## Log transformation of the dependent variable
+train_df$SalePrice <- log(train_df$SalePrice + 1)
+
+## Normal distribution after transformation
+qplot(SalePrice, data = train_df, bins = 50, main = "Normal distribution after log transformation")
+```
+
+
+
