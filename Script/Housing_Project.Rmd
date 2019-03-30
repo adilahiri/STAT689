@@ -8,6 +8,7 @@ output: pdf_document
 ```{r}
 library(ggplot2)
 library(dplyr)
+library(corrplot)
 ```
 
 
@@ -35,7 +36,7 @@ test_df=select(test_df,-c(1))
 
 Analyze the dependent variable SalesPrice
 ```{r}
-qplot(SalePrice, data = train_df, bins = 50, main = "Right skewed distribution")
+qplot(SalePrice, data = train_df, bins = 50, main = "Original Sales Price distribution: Left skewed ")
 
 ```
 
@@ -47,8 +48,16 @@ distribution closer to normal.
 train_df$SalePrice <- log(train_df$SalePrice + 1)
 
 ## Normal distribution after transformation
-qplot(SalePrice, data = train_df, bins = 50, main = "Normal distribution after log transformation")
+qplot(SalePrice, data = train_df, bins = 50, main = "Sale Prices distribution after log transformation")
 ```
 
-
+```{r}
+identify_numeric<-array(dim=dim(train_df)[2])
+for (i in 1:dim(train_df)[2]){
+        identify_numeric[i]<-is.numeric(train_df[,i])
+}
+corrplot.name<-colnames(train_df)[identify_numeric][1:dim(train_df)[2]-1] ## exlude id, and saleprice
+corrdata<-na.omit(train_df[, (names(train_df) %in% corrplot.name)])## remove missing for correlation plot
+corrplot.mixed(cor(corrdata), lower="circle", upper="circle",tl.pos="lt", diag="n", order="hclust", hclust.method="complete")
+```
 
