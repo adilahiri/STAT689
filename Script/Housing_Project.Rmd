@@ -92,3 +92,36 @@ test_df<-test_df %>% select(-one_of(drop))
 dim(train_df)
 dim(test_df)
 ```
+
+We will now check the dataset for missing data. 
+We will remove any features where majority of the instances are missing.
+```{r}
+
+NAcol_Train <- which(colSums(is.na(train_df)) > 0)
+NAcol_Test<- which(colSums(is.na(test_df)) > 0)
+
+cat('There are', length(NAcol_Train), 'columns with missing values in Training Set')
+
+cat('\n There are', length(NAcol_Test), 'columns with missing values in Testing Set')
+
+```
+
+
+There may be some overlap among the features with missing values in the training and testing set. Therefore we will create a column for SalePrices with NA values in the testing set and then combine training and testing set. Once we have dealt with the missing data we will split the train/test set. 
+
+```{r}
+test_df$SalePrice <- NA
+combined_data <- rbind(train_df, test_df)
+NAcol<- which(colSums(is.na(combined_data)) > 0)
+cat('There are', length(NAcol), 'columns with missing values in Training Set')
+
+```
+
+As suspected indeed there is some overlap of missing data among the features in the testing and training set. We will now clean the missing data.
+
+```{r}
+
+```
+
+
+
