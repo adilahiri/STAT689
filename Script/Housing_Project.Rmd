@@ -58,6 +58,37 @@ for (i in 1:dim(train_df)[2]){
 }
 corrplot.name<-colnames(train_df)[identify_numeric][1:dim(train_df)[2]-1] ## exlude id, and saleprice
 corrdata<-na.omit(train_df[, (names(train_df) %in% corrplot.name)])## remove missing for correlation plot
-corrplot.mixed(cor(corrdata), lower="circle", upper="circle",tl.pos="lt", diag="n", order="hclust", hclust.method="complete")
+Corr_Mat <- cor(corrdata)
+corrplot.mixed(Corr_Mat, lower="circle", upper="circle",tl.pos="lt", diag="n", order="hclust", hclust.method="complete",tl.cex=0.8,tl.offset = 0.5)
+
+diag(Corr_Mat)<-0
+
+
 ```
 
+```{r}
+
+Corr_Mat[upper.tri(Corr_Mat)]<-0
+Threshold_Corr <-0.75
+High_Corr_Vars<-which(abs(Corr_Mat) > 0.75,arr.ind = TRUE)
+print("The Variables with high correlations are: ")
+cat("\n")
+for (iter in 1:dim(High_Corr_Vars)[1]){
+  
+  Var_Name1<-rownames(Corr_Mat)[High_Corr_Vars[iter,1]]
+  Var_name2<-colnames(Corr_Mat)[High_Corr_Vars[iter,2]]
+  print(paste(Var_Name1,Var_name2, sep = " and "))
+  cat("\n")
+}
+```
+Since SalePrice is the dependent variable we cannot eliminate it. However, we 
+can eliminate each of the independent variables from the pairs of highly correlated independent variables. We will eliminate GarageYrBlt, X1stFlrSF,TotRmsAbvGrd and GarageCars.It is necessary to remove highly correlated independent variable to prevent overfitting during model building.
+
+
+```{r}
+drop<-c("GarageYrBlt","X1stFlrSF","TotRmsAbvGrd","GarageCars")
+train_df<-train_df %>% select(-one_of(drop))
+test_df<-test_df %>% select(-one_of(drop))
+dim(train_df)
+dim(test_df)
+```
