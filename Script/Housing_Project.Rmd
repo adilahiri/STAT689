@@ -9,6 +9,8 @@ output: pdf_document
 library(ggplot2)
 library(dplyr)
 library(corrplot)
+library(mice)
+library(VIM)
 ```
 
 
@@ -119,7 +121,43 @@ cat('There are', length(NAcol), 'columns with missing values in Training Set')
 
 As suspected indeed there is some overlap of missing data among the features in the testing and training set. We will now clean the missing data.
 
+Here's the percentage of missing data missing by variables. Variables with more than 15% missing data are removed from the model.
 ```{r}
+aggr(combined_data,col=c('blue','red'),numbers=TRUE,sortVars=TRUE)
+NAcombined=colSums(is.na(combined_data))/dim(combined_data)[1]
+NAcombined=sort(subset(NAcombined,NAcombined>0),decreasing=TRUE)
+plot(NAcombined,type="h",lwd=10,xaxt="n")
+axis(1,at=1:length(NAcombined),labels=names(NAcombined))
+cat("The variables that contain more than 50% missing data are",names(subset(NAcombined,NAcombined>0.15)))
+combined_data_clean=subset(combined_data,select=-c(PoolQC,MiscFeature,Alley,Fence,FireplaceQu,LotFrontage))
+```
+
+Converting characters to factors for the imputation and modeling process.
+```{r}
+combined_data_clean=combined_data_clean%>%
+  mutate_if(is.character,as.factor)
+```
+  
+```{r}
+temp_data=mice(subset(combined_data_clean,select=-SalePrice),m=1,maxit = 25,meth='pmm',seed=100)
+summary(temp_data)
+combined_data_imputed=cbind(complete(temp_data,1),combined_data_clean$SalePrice)
+colnames(combined_data_imputed)[colnames(combined_data_imputed)=="combined_data_clean$SalePrice"] <- "SalePrice"
+```
+
+Separating train and test sets from the combined set.
+```{r}
+train_imputed=subset(combined_data_imputed,combined_data_imputed$SalePrice!="NA")
+test_imputed=subset(combined_data_imputed,is.na(combined_data_imputed$SalePrice))
+
+test_imputed =select(test_imputed,-one_of("SalePrice"))
+```
+
+Let's check the training set for any missing values
+```{r}
+cat('There are', length(which(colSums(is.na(train_imputed)) > 0)), 'columns with missing values in Training Set')
+cat("\n")
+cat('There are', length(which(colSums(is.na(test_imputed)) > 0)), 'columns with missing values in Testing Set')
 
 ```
 
