@@ -11,6 +11,7 @@ library(dplyr)
 library(corrplot)
 library(mice)
 library(VIM)
+
 ```
 
 
@@ -84,11 +85,12 @@ for (iter in 1:dim(High_Corr_Vars)[1]){
 }
 ```
 Since SalePrice is the dependent variable we cannot eliminate it. However, we 
-can eliminate each of the independent variables from the pairs of highly correlated independent variables. We will eliminate GarageYrBlt, X1stFlrSF,TotRmsAbvGrd and GarageCars.It is necessary to remove highly correlated independent variable to prevent overfitting during model building.
+can eliminate each of the independent variables from the pairs of highly correlated independent variables. We will eliminate GarageYrBlt,TotRmsAbvGrd and GarageCars.It is necessary to remove highly correlated independent variable to prevent overfitting during model building. We do not remove X1stFlrSF as it is a surface area and combined with other areas to provide a
+measure of total surface area.
 
 
 ```{r}
-drop<-c("GarageYrBlt","X1stFlrSF","TotRmsAbvGrd","GarageCars")
+drop<-c("GarageYrBlt","TotRmsAbvGrd","GarageCars")
 train_df<-train_df %>% select(-one_of(drop))
 test_df<-test_df %>% select(-one_of(drop))
 dim(train_df)
@@ -104,7 +106,7 @@ NAcol_Test<- which(colSums(is.na(test_df)) > 0)
 
 cat('There are', length(NAcol_Train), 'columns with missing values in Training Set')
 
-cat('\n There are', length(NAcol_Test), 'columns with missing values in Testing Set')
+cat('\nThere are', length(NAcol_Test), 'columns with missing values in Testing Set')
 
 ```
 
@@ -134,22 +136,27 @@ combined_data_clean=subset(combined_data,select=-c(PoolQC,MiscFeature,Alley,Fenc
 
 Converting characters to factors for the imputation and modeling process.
 ```{r}
-combined_data_clean=combined_data_clean%>%
-  mutate_if(is.character,as.factor)
+combined_data_clean=combined_data_clean%>%mutate_if(is.character,as.factor)
 ```
   
 ```{r}
 temp_data=mice(subset(combined_data_clean,select=-SalePrice),m=1,maxit = 25,meth='pmm',seed=100)
 summary(temp_data)
+```
+
+```{r}
 combined_data_imputed=cbind(complete(temp_data,1),combined_data_clean$SalePrice)
 colnames(combined_data_imputed)[colnames(combined_data_imputed)=="combined_data_clean$SalePrice"] <- "SalePrice"
 ```
+
+
 
 Separating train and test sets from the combined set.
 ```{r}
 train_imputed=subset(combined_data_imputed,combined_data_imputed$SalePrice!="NA")
 test_imputed=subset(combined_data_imputed,is.na(combined_data_imputed$SalePrice))
 
+combined_imputed=rbind(train_imputed,test_imputed)
 test_imputed =select(test_imputed,-one_of("SalePrice"))
 ```
 
@@ -160,6 +167,129 @@ cat("\n")
 cat('There are', length(which(colSums(is.na(test_imputed)) > 0)), 'columns with missing values in Testing Set')
 
 ```
+
+Find all the character features 
+```{r}
+library(tidyverse)
+names(combined_imputed %>% select_if(negate(is.numeric)))
+```
+
+We will now transform the columns which are categorical.
+```{r}
+combined_imputed$MSSubClass = as.character(combined_imputed$MSSubClass)
+combined_imputed$OverallCond = as.character(combined_imputed$OverallCond)
+combined_imputed$YrSold = as.character(combined_imputed$YrSold)
+combined_imputed$MoSold = as.character(combined_imputed$MoSold)
+```
+
+We will now perform label encoding for columns where the ordering is important
+
+```{r}
+library(caret)
+cols = c("BsmtQual", "BsmtCond", "GarageQual", "GarageCond",
+         "ExterQual", "ExterCond", "HeatingQC", "KitchenQual",
+         "BsmtFinType1", "BsmtFinType2", "Functional", 
+         "BsmtExposure", "GarageFinish", "LandSlope", "LotShape",
+         "PavedDrive", "Street", "CentralAir", "MSSubClass",
+         "OverallCond", "YrSold", "MoSold")
+
+BsmtQual = c("None", "Po", "Fa", "TA", "Gd", "Ex")
+BsmtCond = c("None", "Po", "Fa", "TA", "Gd", "Ex")
+GarageQual = c("None", "Po", "Fa", "TA", "Gd", "Ex")
+GarageCond = c("None", "Po", "Fa", "TA", "Gd", "Ex")
+ExterQual = c("Po", "Fa", "TA", "Gd", "Ex")
+ExterCond = c("Po", "Fa", "TA", "Gd", "Ex")
+HeatingQC = c("Po", "Fa", "TA", "Gd", "Ex")
+KitchenQual = c("Po", "Fa", "TA", "Gd", "Ex")
+BsmtFinType1 = c("None", "Unf", "LwQ", "Rec", "BLQ", "ALQ", "GLQ")
+BsmtFinType2 = c("None", "Unf", "LwQ", "Rec", "BLQ", "ALQ", "GLQ")
+Functional = c("Sal", "Sev", "Maj2", "Maj1", "Mod", "Min2", "Min1", "Typ")
+BsmtExposure = c("None", "No", "Mn", "Av", "Gd")
+GarageFinish = c("None", "Unf", "RFn", "Fin")
+LandSlope = c("Sev", "Mod", "Gtl")
+LotShape = c("IR3", "IR2", "IR1", "Reg")
+PavedDrive = c("N", "P", "Y")
+Street = c("Pave", "Grvl")
+MSSubClass = c("20", "30", "40", "45", "50", "60", "70", "75", "80", "85", 
+    "90", "120", "150", "160", "180", "190")
+OverallCond = NA
+MoSold = NA
+YrSold = NA
+CentralAir = NA
+levels = list(BsmtQual, BsmtCond, GarageQual, GarageCond, ExterQual, 
+              ExterCond, HeatingQC, KitchenQual, BsmtFinType1,
+              BsmtFinType2, Functional, BsmtExposure, GarageFinish,
+              LandSlope,LotShape, PavedDrive, Street, CentralAir,
+              MSSubClass, OverallCond,YrSold, MoSold)
+i = 1
+for (c in cols) {
+    if (c == "CentralAir" | c == "OverallCond" | c == "YrSold" | c == "MoSold") {
+        combined_imputed[, c] = as.numeric(factor(combined_imputed[, c]))
+    } else combined_imputed[, c] = as.numeric(factor(combined_imputed[, c], 
+                                          levels = levels[[i]]))
+    i = i + 1
+}
+```
+
+
+
+Feature Engineering: Create a total surface area feature. 
+```{r}
+combined_imputed$TotalSF = combined_imputed$TotalBsmtSF
+combined_imputed$X1stFlrSF + combined_imputed$X2ndFlrSF
+
+```
+
+
+Create Dummie Variable
+```{r}
+feature_classes <- sapply(names(combined_imputed), function(x) {
+    class(combined_imputed[[x]])
+})
+combined_imputed=combined_imputed%>%mutate_if(is.factor,as.character)
+numeric_feats <- names(feature_classes[feature_classes != "character"])
+
+# get names of categorical features
+categorical_feats <- names(feature_classes[feature_classes == "character"])
+
+# use caret dummyVars function for hot one encoding for categorical
+# features
+dummies <- dummyVars(~., combined_imputed[categorical_feats])
+categorical_1_hot <- predict(dummies, combined_imputed[categorical_feats])
+```
+
+
+Fix the skewness in independent variables
+```{r}
+library(moments)
+library(MASS)
+skewed_feats <- sapply(numeric_feats, function(x) {
+    skewness(combined_imputed[[x]], na.rm = TRUE)
+})
+
+## Keep only features that exceed a threshold (0.75) for skewness
+skewed_feats <- skewed_feats[abs(skewed_feats) > 0.75]
+
+## Transform skewed features with boxcox transformation
+for (x in names(skewed_feats)) {
+    bc = BoxCoxTrans(combined_imputed[[x]], lambda = 0.15)
+    combined_imputed[[x]] = predict(bc, combined_imputed[[x]])
+}
+
+```
+
+
+Final Preprocessed data for modeling 
+```{r}
+combined_imputed <- cbind(combined_imputed[numeric_feats], categorical_1_hot)
+dim(combined_imputed)
+
+training_processed <- combined_imputed[1:1460, ] # use in models
+testing_processed<- combined_imputed[1461:2919, ] # use in models
+```
+
+
+
 
 
 
