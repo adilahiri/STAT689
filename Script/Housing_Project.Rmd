@@ -243,10 +243,12 @@ combined_imputed$X1stFlrSF + combined_imputed$X2ndFlrSF
 
 Create Dummie Variable
 ```{r}
+combined_imputed%>%mutate_if(is.factor,as.character)
+
 feature_classes <- sapply(names(combined_imputed), function(x) {
     class(combined_imputed[[x]])
 })
-combined_imputed=combined_imputed%>%mutate_if(is.factor,as.character)
+
 numeric_feats <- names(feature_classes[feature_classes != "character"])
 
 # get names of categorical features
@@ -289,6 +291,20 @@ testing_processed<- combined_imputed[1461:2919, ] # use in models
 ```
 
 
+We will now divide the training set further to create a validation set. 
+```{r}
+set.seed(4)
+smp_siz = floor(0.75*nrow(training_processed))
+train_ind = sample(seq_len(nrow(training_processed)),size = smp_siz)
+
+train_subset =training_processed[train_ind,] #creates the training dataset with row numbers stored in train_ind
+validation_set=training_processed[-train_ind,]#creates the test dataset excluding the row numbers mentioned in train_ind
+```
+
+
+Model Building
+```{r}
+```
 
 
 
