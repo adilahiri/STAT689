@@ -11,7 +11,8 @@ library(dplyr)
 library(corrplot)
 library(mice)
 library(VIM)
-
+library(glmnet)
+library(Metrics)
 ```
 
 
@@ -242,22 +243,40 @@ combined_imputed$X1stFlrSF + combined_imputed$X2ndFlrSF
 
 
 Create Dummie Variable
-```{r}
-combined_imputed%>%mutate_if(is.factor,as.character)
 
+```{r}
+i <- sapply(combined_imputed, is.factor)
+combined_imputed[i] <- lapply(combined_imputed[i], as.character)
+```
+
+```{r}
 feature_classes <- sapply(names(combined_imputed), function(x) {
     class(combined_imputed[[x]])
 })
 
+```
+
+
+```{r}
+
 numeric_feats <- names(feature_classes[feature_classes != "character"])
+print(numeric_feats)
+```
+
+```{r}
 
 # get names of categorical features
 categorical_feats <- names(feature_classes[feature_classes == "character"])
 
+print(categorical_feats)
+```
+
+```{r}
 # use caret dummyVars function for hot one encoding for categorical
 # features
 dummies <- dummyVars(~., combined_imputed[categorical_feats])
 categorical_1_hot <- predict(dummies, combined_imputed[categorical_feats])
+
 ```
 
 
@@ -303,7 +322,16 @@ validation_set=training_processed[-train_ind,]#creates the test dataset excludin
 
 
 Model Building
+
+Lasso Model
 ```{r}
+
+set.seed(123)
+cv_lasso = cv.glmnet(as.matrix(train_subset[, -51]), train_subset[, 51])
+
+## Predictions
+preds <- predict(cv_lasso, newx = as.matrix(validation_set[, -51]), s = "lambda.min")
+rmse(validation_set$SalePrice, preds)
 ```
 
 
