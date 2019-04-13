@@ -323,6 +323,16 @@ validation_set=training_processed[-train_ind,]#creates the test dataset excludin
 
 Model Building
 
+Simple Linear Model
+
+```{r}
+lm_model <- lm(train_subset$SalePrice ~ ., data=train_subset[, -51])
+lm_prediction <- predict(lm_model, validation_set[, -51], type="response")
+rmse(lm_prediction,validation_set$SalePrice)
+
+```
+
+
 Lasso Model
 ```{r}
 
@@ -335,5 +345,44 @@ rmse(validation_set$SalePrice, preds)
 ```
 
 
+```{r}
+library(e1071)
+library(mlbench)
+
+#linear.tune = tune.svm(train_subset$SalePrice~., data=train_subset[, -51], 
+#                       kernel="linear", cost=c(0.001, 0.01, 0.1, 1,5,10))
+
+#control <- trainControl(method="cv", number=10,verbose=TRUE)
+#SVMgrid <- expand.grid( C = c(1.5,1.596,1.65,1.89,1.95,2,2.2,2.44))
+
+#modelSvmRRB <- train(train_subset$SalePrice~., data=train_subset[, -51], method="svmLinear", trControl=control,tuneGrid = SVMgrid, verbose=FALSE)
+
+model_svm<-tune(method = 'svm',train.x=train_subset[, -51],train.y=train_subset[,51],ranges = list( cost=c(0.001, 0.01, 0.1, 1,2,3,4,6,5,10,100)))
+
+
+model_svm
+
+
+best.linear = model_svm$best.model
+tune.test = predict(best.linear, newdata=validation_set[,-51])
+rmse(validation_set$SalePrice, tune.test)
+```
+
+
+```{r}
+#svm_model<-svm(train_subset$SalePrice~., data=train_subset[, -51])
+#svm_regressor = train(form = train_subset$SalePrice ~ ., data = train_subset[, -51])
+
+model <- train(train_subset$SalePrice~., data=train_subset[, -51], method="lvq", preProcess="scale", trControl=control, tuneLength=5)
+
+
+
+svm_model<-svm(train_subset$SalePrice~., data=train_subset[, -51])
+
+svm_pred <- predict(svm_model,newdata = validation_set[, -51])
+
+rmse(validation_set$SalePrice, svm_pred)
+
+```
 
 
