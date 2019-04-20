@@ -307,6 +307,28 @@ dim(combined_imputed)
 
 training_processed <- combined_imputed[1:1460, ] # use in models
 testing_processed<- combined_imputed[1461:2919, ] # use in models
+
+colnames(training_processed)[53]<-"MSZoningC_all"
+colnames(testing_processed)[53]<-"MSZoningC_all"
+
+colnames(training_processed)[135]<-"RoofMatlTarGrv"
+colnames(testing_processed)[135]<-"RoofMatlTar&Grv"
+
+colnames(training_processed)[151]<-"Exterior1stWdSdng"
+colnames(testing_processed)[151]<-"Exterior1stWdSdng"
+
+colnames(training_processed)[155]<-"Exterior2ndBrkCmn"
+colnames(testing_processed)[155]<-"Exterior2ndBrkCmn"
+
+colnames(training_processed)[167]<-"Exterior2ndWdSdng"
+colnames(testing_processed)[167]<-"Exterior2ndWdSdng"
+
+colnames(training_processed)[168]<-"Exterior2ndWdShng"
+colnames(testing_processed)[168]<-"Exterior2ndWdShng"
+
+
+
+
 ```
 
 
@@ -318,6 +340,8 @@ train_ind = sample(seq_len(nrow(training_processed)),size = smp_siz)
 
 train_subset =training_processed[train_ind,] #creates the training dataset with row numbers stored in train_ind
 validation_set=training_processed[-train_ind,]#creates the test dataset excluding the row numbers mentioned in train_ind
+
+
 ```
 
 
@@ -326,8 +350,8 @@ Model Building
 Simple Linear Model
 
 ```{r}
-lm_model <- lm(train_subset$SalePrice ~ ., data=train_subset[, -51])
-lm_prediction <- predict(lm_model, validation_set[, -51], type="response")
+lm_model <- lm(train_subset$SalePrice ~ ., data=train_subset)
+lm_prediction <- predict(lm_model, validation_set, type="response")
 rmse(lm_prediction,validation_set$SalePrice)
 
 ```
@@ -349,18 +373,11 @@ rmse(validation_set$SalePrice, preds)
 library(e1071)
 library(mlbench)
 
-#linear.tune = tune.svm(train_subset$SalePrice~., data=train_subset[, -51], 
-#                       kernel="linear", cost=c(0.001, 0.01, 0.1, 1,5,10))
-
-#control <- trainControl(method="cv", number=10,verbose=TRUE)
-#SVMgrid <- expand.grid( C = c(1.5,1.596,1.65,1.89,1.95,2,2.2,2.44))
-
-#modelSvmRRB <- train(train_subset$SalePrice~., data=train_subset[, -51], method="svmLinear", trControl=control,tuneGrid = SVMgrid, verbose=FALSE)
 
 model_svm<-tune(method = 'svm',train.x=train_subset[, -51],train.y=train_subset[,51],ranges = list( cost=c(0.001, 0.01, 0.1, 1,2,3,4,6,5,10,100)))
 
 
-model_svm
+
 
 
 best.linear = model_svm$best.model
@@ -369,20 +386,39 @@ rmse(validation_set$SalePrice, tune.test)
 ```
 
 
+
+Performing Tree Regression
 ```{r}
-#svm_model<-svm(train_subset$SalePrice~., data=train_subset[, -51])
-#svm_regressor = train(form = train_subset$SalePrice ~ ., data = train_subset[, -51])
+library(tree)
+tree.price=tree(SalePrice~.,data=train_subset) #change the dataset
+plot(tree.price)
+text(tree.price,pretty=0)
+cv.tree.price=cv.tree(tree.price)
+plot(cv.tree.price$size,cv.tree.price$dev,type='b') 
+prune.tree.price=prune.tree(tree.price,best=12) #change the prune number.
+plot(prune.tree.price)
+text(prune.tree.price,pretty=0)
+pred_tree= predict(prune.tree.price, newdata=validation_set)
+rmse(validation_set$SalePrice, pred_tree)
 
-model <- train(train_subset$SalePrice~., data=train_subset[, -51], method="lvq", preProcess="scale", trControl=control, tuneLength=5)
+```
 
+Performing RandomForest
+```{r}
+library(randomForest)
+tab.mtry=matrix(NA,nrow=ncol(train_subset)-1,ncol=2)
 
+for(i in 1:(ncol(train_subset)-1)){
+  mtryval=i
+  bag.price=randomForest(SalePrice~.,data=train_subset,mtry=mtryval,ntree=150) #change the dataset
+  bag.predict=predict(bag.price,newdata=validation_set) #change the dataset
+  tab.mtry[i,1]=i
+  tab.mtry[i,2]=mean((bag.predict-validation_set$SalePrice)^2)
+}
+tab.mtry.df=as.data.frame(tab.mtry)
+tab.mtry.df[which.min(tab.mtry.df[,2]),1]
 
-svm_model<-svm(train_subset$SalePrice~., data=train_subset[, -51])
-
-svm_pred <- predict(svm_model,newdata = validation_set[, -51])
-
-rmse(validation_set$SalePrice, svm_pred)
-
+which(colnames(train_subset)=='Exterior2ndWd Sdng')
 ```
 
 
