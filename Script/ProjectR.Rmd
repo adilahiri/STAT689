@@ -12,6 +12,8 @@ library(corrplot)
 library(mice)
 library(VIM)
 library(dplyr)
+library(tree)
+library(randomForest)
 ```
 
 
@@ -147,3 +149,29 @@ train_imputed=subset(combined_data_imputed,combined_data_imputed$SalePrice!="NA"
 test_imputed=subset(combined_data_imputed,is.na(combined_data_imputed$SalePrice))
 ```
 
+Performing Tree Regression
+```{r}
+tree.price=tree(SalePrice~.,data=train_imputed) #change the dataset
+plot(tree.price)
+text(tree.price,pretty=0)
+cv.tree.price=cv.tree(tree.price)
+plot(cv.tree.price$size,cv.tree.price$dev,type='b') 
+prune.tree.price=prune.tree(tree.price,best=10) #change the prune number.
+plot(prune.tree.price)
+text(prune.tree.price,pretty=0)
+```
+
+Performing RandomForest
+```{r}
+tab.mtry=matrix(NA,nrow=ncol(train_imputed)-1,ncol=2)
+
+for(i in 1:(ncol(train_imputed)-1)){
+  mtryval=i
+  bag.price=randomForest(SalePrice~.,data=train_imputed,mtry=mtryval,ntree=150) #change the dataset
+  bag.predict=predict(bag.price) #change the dataset
+  tab.mtry[i,1]=i
+  tab.mtry[i,2]=mean((bag.predict-train_imputed$SalePrice)^2)
+}
+tab.mtry.df=as.data.frame(tab.mtry)
+tab.mtry.df[which.min(tab.mtry.df[,2]),1]
+```
