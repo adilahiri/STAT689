@@ -13,6 +13,7 @@ library(mice)
 library(VIM)
 library(glmnet)
 library(Metrics)
+library(microbenchmark)
 ```
 
 
@@ -379,13 +380,13 @@ rmse(validation_set$SalePrice, preds)
 
 
 ```{r}
-my_control <-trainControl(method="cv", number=5)
+my_control_lasso <-trainControl(method="cv", number=5)
 lassoGrid <- expand.grid(alpha = 1, lambda = seq(0.001,0.1,by = 0.0005))
 
 lasso_mod <- train(x=train_subset[, -51],
                    y=train_subset$SalePrice,
                    method='glmnet', 
-                   trControl= my_control, tuneGrid=lassoGrid) 
+                   trControl= my_control_lasso, tuneGrid=lassoGrid) 
 
 lasso_mod$bestTune
 min(lasso_mod$results$RMSE)
@@ -403,37 +404,15 @@ lassoImportance[order(-lassoImportance$Overall), , drop = FALSE]
 ```
 
 Ridge Model
-```{r}
-
-grid <- 10^seq(10,-2, length =100)
-fit.ridge <- glmnet(as.matrix(train_subset[, -51]), train_subset$SalePrice,
-                    alpha = 0, lambda = grid, thresh = 1e-12)
-
-ridge_mod <- cv.glmnet(as.matrix(train_subset[, -51]), train_subset$SalePrice,
-                      alpha = 0, lambda = grid, thresh = 1e-12)
-
-bestlam.ridge <- cv.ridge$lambda.min
-
-pred.ridge <- predict(ridge_mod, s = bestlam.ridge,
-                      newx =as.matrix(validation_set[, -51]))
-rmse(validation_set$SalePrice, pred.ridge)
-
-
-ridgeVarImp <- varImp(ridge_mod,scale=F)
-Importance <- ridgeVarImp$importance
-
-lassoImportance[order(-lassoImportance$Overall), , drop = FALSE]
-```
-
 
 ```{r}
-my_control <-trainControl(method="cv", number=5)
+my_control_ridge <-trainControl(method="cv", number=5)
 ridgeGrid <- expand.grid(alpha = 0, lambda = 10^seq(10,-2, length =100))
 
 ridge_mod <- train(x=train_subset[, -51],
                    y=train_subset$SalePrice,
                    method='glmnet', 
-                   trControl= my_control, tuneGrid=ridgeGrid) 
+                   trControl= my_control_ridge, tuneGrid=ridgeGrid) 
 
 min(ridge_mod$results$RMSE)
 
@@ -459,15 +438,30 @@ library(e1071)
 library(mlbench)
 
 
-model_svm<-tune(method = 'svm',train.x=train_subset[, -51],train.y=train_subset[,51],ranges = list( cost=c(0.001, 0.01, 0.1, 1,2,3,4,6,5,10,100)))
+
+my_control_svm <-trainControl(method="cv", number=5)
+svmGrid <- expand.grid(C=c(0.01,0.1,1,10))
+
+svm_mod <- train(x=train_subset[, -51],
+                   y=train_subset$SalePrice,
+                   method='svmLinear', 
+                   trControl= my_control_svm, tuneGrid=svmGrid) 
 
 
 
 
 
-best.linear = model_svm$best.model
-tune.test = predict(best.linear, newdata=validation_set[,-51])
-rmse(validation_set$SalePrice, tune.test)
+
+#model_svm<-tune(method = 'svm',train.x=train_subset[, -51],train.y=train_subset[,51],ranges = list( cost=c(0.001, 0.01, 0.1, 1,2,3,4,6,5,10,100)))
+
+
+
+
+
+#best.linear = model_svm$best.model
+#tune.test = predict(best.linear, newdata=validation_set[,-51])
+svm_predict<- predict(svm_mod, newdata=validation_set[,-51])
+rmse(validation_set$SalePrice, svm_predict)
 ```
 
 
@@ -543,4 +537,80 @@ library(ggplot2)
 mat <- xgb.importance (feature_names = colnames(train_subset),model = xgb_mod)
 xgb.ggplot.importance(importance_matrix = mat[1:20], rel_to_first = TRUE)
 ```
+
+Timing of the CVs
+
+```{r}
+Lasso_Time <- function(train_subset,my_control_lasso,lassoGrid){
+  lasso_mod <- train(x=train_subset[, -51],
+                   y=train_subset$SalePrice,
+                   method='glmnet', 
+                   trControl= my_control_lasso, tuneGrid=lassoGrid) 
+
+}
+```
+
+```{r}
+Ridge_Time <-function(train_subset,my_control_ridge,ridgeGrid){
+  ridge_mod <- train(x=train_subset[, -51],
+                   y=train_subset$SalePrice,
+                   method='glmnet', 
+                   trControl= my_control_ridge, tuneGrid=ridgeGrid) 
+  
+}
+```
+
+```{r}
+SVM_Time<-function(train_subset,my_control_svm,svmGrid){
+  svm_mod <- train(x=train_subset[, -51],
+                   y=train_subset$SalePrice,
+                   method='svmLinear', 
+                   trControl= my_control_svm, tuneGrid=svmGrid)
+}
+```
+
+```{r}
+Decision_Tree_Time <- function(train_subset){
+  library(tree)
+
+  tree.price=tree(SalePrice~.,data=train_subset)
+  cv.tree.price=cv.tree(tree.price)
+
+}
+```
+
+```{r}
+XGBoost_Time <-function(dtrain){
+  default_param<-list(
+        objective = "reg:linear",
+        booster = "gbtree",
+        eta=0.05, #default = 0.3
+        gamma=0,
+        max_depth=3, #default=6
+        min_child_weight=4, #default=1
+        subsample=1,
+        colsample_bytree=1)
+
+xgbcv <- xgb.cv(params = default_param, data = dtrain, nrounds = 500, 
+                nfold = 10, showsd = T, stratified = T, print_every_n = 40,
+                early_stopping_rounds = 10, maximize = F)
+  
+}
+```
+
+```{r}
+microbenchmark(Lasso_Time(train_subset,my_control_lasso,lassoGrid),
+               
+               Ridge_Time(train_subset,my_control_ridge,ridgeGrid),
+               
+               SVM_Time(train_subset,my_control_svm,svmGrid),
+               
+               Decision_Tree_Time(tree.price),
+               
+               XGBoost_Time(dtrain),
+               
+               times=1)
+```
+
+
 
