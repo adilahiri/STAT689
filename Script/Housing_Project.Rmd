@@ -238,7 +238,10 @@ Feature Engineering: Create a total surface area feature.
 ```{r}
 combined_imputed$TotalSF = combined_imputed$TotalBsmtSF
 combined_imputed$X1stFlrSF + combined_imputed$X2ndFlrSF
++combined_imputed$GrLivArea 
 
+#combined_imputed$TotalSF = combined_imputed$TotalBsmtSF
+#+combined_imputed$GrLivArea 
 ```
 
 
@@ -312,7 +315,7 @@ colnames(training_processed)[53]<-"MSZoningC_all"
 colnames(testing_processed)[53]<-"MSZoningC_all"
 
 colnames(training_processed)[135]<-"RoofMatlTarGrv"
-colnames(testing_processed)[135]<-"RoofMatlTar&Grv"
+colnames(testing_processed)[135]<-"RoofMatlTarGrv"
 
 colnames(training_processed)[151]<-"Exterior1stWdSdng"
 colnames(testing_processed)[151]<-"Exterior1stWdSdng"
@@ -350,11 +353,17 @@ Model Building
 Simple Linear Model
 
 ```{r}
+set.seed(4)
+
 lm_model <- lm(train_subset$SalePrice ~ ., data=train_subset)
 lm_prediction <- predict(lm_model, validation_set, type="response")
 rmse(lm_prediction,validation_set$SalePrice)
 
 ```
+
+
+
+
 
 
 Lasso Model
@@ -366,6 +375,82 @@ cv_lasso = cv.glmnet(as.matrix(train_subset[, -51]), train_subset[, 51])
 ## Predictions
 preds <- predict(cv_lasso, newx = as.matrix(validation_set[, -51]), s = "lambda.min")
 rmse(validation_set$SalePrice, preds)
+```
+
+
+```{r}
+my_control <-trainControl(method="cv", number=5)
+lassoGrid <- expand.grid(alpha = 1, lambda = seq(0.001,0.1,by = 0.0005))
+
+lasso_mod <- train(x=train_subset[, -51],
+                   y=train_subset$SalePrice,
+                   method='glmnet', 
+                   trControl= my_control, tuneGrid=lassoGrid) 
+
+lasso_mod$bestTune
+min(lasso_mod$results$RMSE)
+
+preds_lasso <- predict(lasso_mod,
+                       validation_set[, -51], 
+                       s = "lambda.min")
+
+rmse(validation_set$SalePrice, preds_lasso)
+
+lassoVarImp <- varImp(lasso_mod,scale=F)
+lassoImportance <- lassoVarImp$importance
+
+lassoImportance[order(-lassoImportance$Overall), , drop = FALSE]
+```
+
+Ridge Model
+```{r}
+
+grid <- 10^seq(10,-2, length =100)
+fit.ridge <- glmnet(as.matrix(train_subset[, -51]), train_subset$SalePrice,
+                    alpha = 0, lambda = grid, thresh = 1e-12)
+
+ridge_mod <- cv.glmnet(as.matrix(train_subset[, -51]), train_subset$SalePrice,
+                      alpha = 0, lambda = grid, thresh = 1e-12)
+
+bestlam.ridge <- cv.ridge$lambda.min
+
+pred.ridge <- predict(ridge_mod, s = bestlam.ridge,
+                      newx =as.matrix(validation_set[, -51]))
+rmse(validation_set$SalePrice, pred.ridge)
+
+
+ridgeVarImp <- varImp(ridge_mod,scale=F)
+Importance <- ridgeVarImp$importance
+
+lassoImportance[order(-lassoImportance$Overall), , drop = FALSE]
+```
+
+
+```{r}
+my_control <-trainControl(method="cv", number=5)
+ridgeGrid <- expand.grid(alpha = 0, lambda = 10^seq(10,-2, length =100))
+
+ridge_mod <- train(x=train_subset[, -51],
+                   y=train_subset$SalePrice,
+                   method='glmnet', 
+                   trControl= my_control, tuneGrid=ridgeGrid) 
+
+min(ridge_mod$results$RMSE)
+
+preds_ridge <- predict(ridge_mod,
+                       validation_set[, -51], 
+                       s = "lambda.min")
+
+rmse(validation_set$SalePrice, preds_ridge)
+
+```
+
+
+```{r}
+ridgeVarImp <- varImp(lasso_mod,scale=F)
+ridgeImportance <- lassoVarImp$importance
+
+ridgeImportance[order(-lassoImportance$Overall), , drop = FALSE]
 ```
 
 
@@ -421,4 +506,41 @@ tab.mtry.df[which.min(tab.mtry.df[,2]),1]
 which(colnames(train_subset)=='Exterior2ndWd Sdng')
 ```
 
+XGBOOST
+```{r}
+library(xgboost)
+label_train <- train_subset$SalePrice
+
+# put our testing & training data into two seperates Dmatrixs objects
+dtrain <- xgb.DMatrix(data = as.matrix(train_subset[,-51]), label= label_train)
+dvalid <- xgb.DMatrix(data = as.matrix(validation_set[,-51]))
+
+default_param<-list(
+        objective = "reg:linear",
+        booster = "gbtree",
+        eta=0.05, #default = 0.3
+        gamma=0,
+        max_depth=3, #default=6
+        min_child_weight=4, #default=1
+        subsample=1,
+        colsample_bytree=1
+)
+
+xgbcv <- xgb.cv(params = default_param, data = dtrain, nrounds = 500, 
+                nfold = 10, showsd = T, stratified = T, print_every_n = 40,
+                early_stopping_rounds = 10, maximize = F)
+```
+
+```{r}
+xgb_mod <- xgb.train(data = dtrain, params=default_param, nrounds = 454)
+XGBpred <- predict(xgb_mod, dvalid)
+rmse(validation_set$SalePrice, XGBpred)
+```
+
+```{r}
+library(Ckmeans.1d.dp)
+library(ggplot2)
+mat <- xgb.importance (feature_names = colnames(train_subset),model = xgb_mod)
+xgb.ggplot.importance(importance_matrix = mat[1:20], rel_to_first = TRUE)
+```
 
