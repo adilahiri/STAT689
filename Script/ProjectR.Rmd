@@ -11,9 +11,9 @@ library(dplyr)
 library(corrplot)
 library(mice)
 library(VIM)
-library(dplyr)
-library(tree)
-library(randomForest)
+library(glmnet)
+library(Metrics)
+library(microbenchmark)
 ```
 
 
@@ -71,6 +71,7 @@ diag(Corr_Mat)<-0
 ```
 
 ```{r}
+
 Corr_Mat[upper.tri(Corr_Mat)]<-0
 Threshold_Corr <-0.75
 High_Corr_Vars<-which(abs(Corr_Mat) > 0.75,arr.ind = TRUE)
@@ -85,11 +86,12 @@ for (iter in 1:dim(High_Corr_Vars)[1]){
 }
 ```
 Since SalePrice is the dependent variable we cannot eliminate it. However, we 
-can eliminate each of the independent variables from the pairs of highly correlated independent variables. We will eliminate GarageYrBlt, X1stFlrSF,TotRmsAbvGrd and GarageCars.It is necessary to remove highly correlated independent variable to prevent overfitting during model building.
+can eliminate each of the independent variables from the pairs of highly correlated independent variables. We will eliminate GarageYrBlt,TotRmsAbvGrd and GarageCars.It is necessary to remove highly correlated independent variable to prevent overfitting during model building. We do not remove X1stFlrSF as it is a surface area and combined with other areas to provide a
+measure of total surface area.
 
 
 ```{r}
-drop<-c("GarageYrBlt","X1stFlrSF","TotRmsAbvGrd","GarageCars")
+drop<-c("GarageYrBlt","TotRmsAbvGrd","GarageCars")
 train_df<-train_df %>% select(-one_of(drop))
 test_df<-test_df %>% select(-one_of(drop))
 dim(train_df)
@@ -104,9 +106,11 @@ NAcol_Train <- which(colSums(is.na(train_df)) > 0)
 NAcol_Test<- which(colSums(is.na(test_df)) > 0)
 
 cat('There are', length(NAcol_Train), 'columns with missing values in Training Set')
-cat('\n There are', length(NAcol_Test), 'columns with missing values in Testing Set')
+
+cat('\nThere are', length(NAcol_Test), 'columns with missing values in Testing Set')
 
 ```
+
 
 There may be some overlap among the features with missing values in the training and testing set. Therefore we will create a column for SalePrices with NA values in the testing set and then combine training and testing set. Once we have dealt with the missing data we will split the train/test set. 
 
@@ -117,6 +121,8 @@ NAcol<- which(colSums(is.na(combined_data)) > 0)
 cat('There are', length(NAcol), 'columns with missing values in Training Set')
 
 ```
+
+As suspected indeed there is some overlap of missing data among the features in the testing and training set. We will now clean the missing data.
 
 Here's the percentage of missing data missing by variables. Variables with more than 15% missing data are removed from the model.
 ```{r}
@@ -131,47 +137,491 @@ combined_data_clean=subset(combined_data,select=-c(PoolQC,MiscFeature,Alley,Fenc
 
 Converting characters to factors for the imputation and modeling process.
 ```{r}
-combined_data_clean=combined_data_clean%>%
-  mutate_if(is.character,as.factor)
+combined_data_clean=combined_data_clean%>%mutate_if(is.character,as.factor)
 ```
   
-As suspected indeed there is some overlap of missing data among the features in the testing and training set. We will now clean the missing data.
 ```{r}
 temp_data=mice(subset(combined_data_clean,select=-SalePrice),m=1,maxit = 25,meth='pmm',seed=100)
 summary(temp_data)
+```
+
+```{r}
 combined_data_imputed=cbind(complete(temp_data,1),combined_data_clean$SalePrice)
 colnames(combined_data_imputed)[colnames(combined_data_imputed)=="combined_data_clean$SalePrice"] <- "SalePrice"
 ```
+
+
 
 Separating train and test sets from the combined set.
 ```{r}
 train_imputed=subset(combined_data_imputed,combined_data_imputed$SalePrice!="NA")
 test_imputed=subset(combined_data_imputed,is.na(combined_data_imputed$SalePrice))
+
+combined_imputed=rbind(train_imputed,test_imputed)
+test_imputed =select(test_imputed,-one_of("SalePrice"))
 ```
+
+Let's check the training set for any missing values
+```{r}
+cat('There are', length(which(colSums(is.na(train_imputed)) > 0)), 'columns with missing values in Training Set')
+cat("\n")
+cat('There are', length(which(colSums(is.na(test_imputed)) > 0)), 'columns with missing values in Testing Set')
+
+```
+
+Find all the character features 
+```{r}
+library(tidyverse)
+names(combined_imputed %>% select_if(negate(is.numeric)))
+```
+
+We will now transform the columns which are categorical.
+```{r}
+combined_imputed$MSSubClass = as.character(combined_imputed$MSSubClass)
+combined_imputed$OverallCond = as.character(combined_imputed$OverallCond)
+combined_imputed$YrSold = as.character(combined_imputed$YrSold)
+combined_imputed$MoSold = as.character(combined_imputed$MoSold)
+```
+
+We will now perform label encoding for columns where the ordering is important
+
+```{r}
+library(caret)
+cols = c("BsmtQual", "BsmtCond", "GarageQual", "GarageCond",
+         "ExterQual", "ExterCond", "HeatingQC", "KitchenQual",
+         "BsmtFinType1", "BsmtFinType2", "Functional", 
+         "BsmtExposure", "GarageFinish", "LandSlope", "LotShape",
+         "PavedDrive", "Street", "CentralAir", "MSSubClass",
+         "OverallCond", "YrSold", "MoSold")
+
+BsmtQual = c("None", "Po", "Fa", "TA", "Gd", "Ex")
+BsmtCond = c("None", "Po", "Fa", "TA", "Gd", "Ex")
+GarageQual = c("None", "Po", "Fa", "TA", "Gd", "Ex")
+GarageCond = c("None", "Po", "Fa", "TA", "Gd", "Ex")
+ExterQual = c("Po", "Fa", "TA", "Gd", "Ex")
+ExterCond = c("Po", "Fa", "TA", "Gd", "Ex")
+HeatingQC = c("Po", "Fa", "TA", "Gd", "Ex")
+KitchenQual = c("Po", "Fa", "TA", "Gd", "Ex")
+BsmtFinType1 = c("None", "Unf", "LwQ", "Rec", "BLQ", "ALQ", "GLQ")
+BsmtFinType2 = c("None", "Unf", "LwQ", "Rec", "BLQ", "ALQ", "GLQ")
+Functional = c("Sal", "Sev", "Maj2", "Maj1", "Mod", "Min2", "Min1", "Typ")
+BsmtExposure = c("None", "No", "Mn", "Av", "Gd")
+GarageFinish = c("None", "Unf", "RFn", "Fin")
+LandSlope = c("Sev", "Mod", "Gtl")
+LotShape = c("IR3", "IR2", "IR1", "Reg")
+PavedDrive = c("N", "P", "Y")
+Street = c("Pave", "Grvl")
+MSSubClass = c("20", "30", "40", "45", "50", "60", "70", "75", "80", "85", 
+    "90", "120", "150", "160", "180", "190")
+OverallCond = NA
+MoSold = NA
+YrSold = NA
+CentralAir = NA
+levels = list(BsmtQual, BsmtCond, GarageQual, GarageCond, ExterQual, 
+              ExterCond, HeatingQC, KitchenQual, BsmtFinType1,
+              BsmtFinType2, Functional, BsmtExposure, GarageFinish,
+              LandSlope,LotShape, PavedDrive, Street, CentralAir,
+              MSSubClass, OverallCond,YrSold, MoSold)
+i = 1
+for (c in cols) {
+    if (c == "CentralAir" | c == "OverallCond" | c == "YrSold" | c == "MoSold") {
+        combined_imputed[, c] = as.numeric(factor(combined_imputed[, c]))
+    } else combined_imputed[, c] = as.numeric(factor(combined_imputed[, c], 
+                                          levels = levels[[i]]))
+    i = i + 1
+}
+```
+
+
+
+Feature Engineering: Create a total surface area feature. 
+```{r}
+combined_imputed$TotalSF = combined_imputed$TotalBsmtSF
+combined_imputed$X1stFlrSF + combined_imputed$X2ndFlrSF
++combined_imputed$GrLivArea 
+
+#combined_imputed$TotalSF = combined_imputed$TotalBsmtSF
+#+combined_imputed$GrLivArea 
+```
+
+
+Create Dummie Variable
+
+```{r}
+i <- sapply(combined_imputed, is.factor)
+combined_imputed[i] <- lapply(combined_imputed[i], as.character)
+```
+
+```{r}
+feature_classes <- sapply(names(combined_imputed), function(x) {
+    class(combined_imputed[[x]])
+})
+
+```
+
+
+```{r}
+
+numeric_feats <- names(feature_classes[feature_classes != "character"])
+print(numeric_feats)
+```
+
+```{r}
+
+# get names of categorical features
+categorical_feats <- names(feature_classes[feature_classes == "character"])
+
+print(categorical_feats)
+```
+
+```{r}
+# use caret dummyVars function for hot one encoding for categorical
+# features
+dummies <- dummyVars(~., combined_imputed[categorical_feats])
+categorical_1_hot <- predict(dummies, combined_imputed[categorical_feats])
+
+```
+
+
+Fix the skewness in independent variables
+```{r}
+library(moments)
+library(MASS)
+skewed_feats <- sapply(numeric_feats, function(x) {
+    skewness(combined_imputed[[x]], na.rm = TRUE)
+})
+
+## Keep only features that exceed a threshold (0.75) for skewness
+skewed_feats <- skewed_feats[abs(skewed_feats) > 0.75]
+
+## Transform skewed features with boxcox transformation
+for (x in names(skewed_feats)) {
+    bc = BoxCoxTrans(combined_imputed[[x]], lambda = 0.15)
+    combined_imputed[[x]] = predict(bc, combined_imputed[[x]])
+}
+
+```
+
+
+Final Preprocessed data for modeling 
+```{r}
+combined_imputed <- cbind(combined_imputed[numeric_feats], categorical_1_hot)
+dim(combined_imputed)
+
+training_processed <- combined_imputed[1:1460, ] # use in models
+testing_processed<- combined_imputed[1461:2919, ] # use in models
+
+colnames(training_processed)[53]<-"MSZoningC_all"
+colnames(testing_processed)[53]<-"MSZoningC_all"
+
+colnames(training_processed)[135]<-"RoofMatlTarGrv"
+colnames(testing_processed)[135]<-"RoofMatlTarGrv"
+
+colnames(training_processed)[151]<-"Exterior1stWdSdng"
+colnames(testing_processed)[151]<-"Exterior1stWdSdng"
+
+colnames(training_processed)[155]<-"Exterior2ndBrkCmn"
+colnames(testing_processed)[155]<-"Exterior2ndBrkCmn"
+
+colnames(training_processed)[167]<-"Exterior2ndWdSdng"
+colnames(testing_processed)[167]<-"Exterior2ndWdSdng"
+
+colnames(training_processed)[168]<-"Exterior2ndWdShng"
+colnames(testing_processed)[168]<-"Exterior2ndWdShng"
+
+
+
+
+```
+
+
+We will now divide the training set further to create a validation set. 
+```{r}
+set.seed(4)
+smp_siz = floor(0.75*nrow(training_processed))
+train_ind = sample(seq_len(nrow(training_processed)),size = smp_siz)
+
+train_subset =training_processed[train_ind,] #creates the training dataset with row numbers stored in train_ind
+validation_set=training_processed[-train_ind,]#creates the test dataset excluding the row numbers mentioned in train_ind
+
+
+```
+
+
+Model Building
+
+Simple Linear Model
+
+```{r}
+set.seed(4)
+
+lm_model <- lm(train_subset$SalePrice ~ ., data=train_subset)
+lm_prediction <- predict(lm_model, validation_set, type="response")
+rmse(lm_prediction,validation_set$SalePrice)
+
+```
+
+
+
+
+
+
+Lasso Model
+```{r}
+
+set.seed(123)
+cv_lasso = cv.glmnet(as.matrix(train_subset[, -51]), train_subset[, 51])
+
+## Predictions
+preds <- predict(cv_lasso, newx = as.matrix(validation_set[, -51]), s = "lambda.min")
+rmse(validation_set$SalePrice, preds)
+```
+
+
+```{r}
+my_control_lasso <-trainControl(method="cv", number=5)
+lassoGrid <- expand.grid(alpha = 1, lambda = seq(0.001,0.1,by = 0.0005))
+
+lasso_mod <- train(x=train_subset[, -51],
+                   y=train_subset$SalePrice,
+                   method='glmnet', 
+                   trControl= my_control_lasso, tuneGrid=lassoGrid) 
+
+lasso_mod$bestTune
+min(lasso_mod$results$RMSE)
+
+preds_lasso <- predict(lasso_mod,
+                       validation_set[, -51], 
+                       s = "lambda.min")
+
+rmse(validation_set$SalePrice, preds_lasso)
+
+lassoVarImp <- varImp(lasso_mod,scale=F)
+lassoImportance <- lassoVarImp$importance
+
+lassoImportance[order(-lassoImportance$Overall), , drop = FALSE]
+```
+
+Ridge Model
+
+```{r}
+my_control_ridge <-trainControl(method="cv", number=5)
+ridgeGrid <- expand.grid(alpha = 0, lambda = 10^seq(10,-2, length =100))
+
+ridge_mod <- train(x=train_subset[, -51],
+                   y=train_subset$SalePrice,
+                   method='glmnet', 
+                   trControl= my_control_ridge, tuneGrid=ridgeGrid) 
+
+min(ridge_mod$results$RMSE)
+
+preds_ridge <- predict(ridge_mod,
+                       validation_set[, -51], 
+                       s = "lambda.min")
+
+rmse(validation_set$SalePrice, preds_ridge)
+
+```
+
+
+```{r}
+ridgeVarImp <- varImp(lasso_mod,scale=F)
+ridgeImportance <- lassoVarImp$importance
+
+ridgeImportance[order(-lassoImportance$Overall), , drop = FALSE]
+```
+
+
+```{r}
+library(e1071)
+library(mlbench)
+
+
+
+my_control_svm <-trainControl(method="cv", number=5)
+svmGrid <- expand.grid(C=c(0.01,0.1,1,10))
+
+svm_mod <- train(x=train_subset[, -51],
+                   y=train_subset$SalePrice,
+                   method='svmLinear', 
+                   trControl= my_control_svm, tuneGrid=svmGrid) 
+
+
+
+
+
+
+#model_svm<-tune(method = 'svm',train.x=train_subset[, -51],train.y=train_subset[,51],ranges = list( cost=c(0.001, 0.01, 0.1, 1,2,3,4,6,5,10,100)))
+
+
+
+
+
+#best.linear = model_svm$best.model
+#tune.test = predict(best.linear, newdata=validation_set[,-51])
+svm_predict<- predict(svm_mod, newdata=validation_set[,-51])
+rmse(validation_set$SalePrice, svm_predict)
+```
+
+
 
 Performing Tree Regression
 ```{r}
-tree.price=tree(SalePrice~.,data=train_imputed) #change the dataset
+library(tree)
+tree.price=tree(SalePrice~.,data=train_subset) #change the dataset
 plot(tree.price)
 text(tree.price,pretty=0)
 cv.tree.price=cv.tree(tree.price)
 plot(cv.tree.price$size,cv.tree.price$dev,type='b') 
-prune.tree.price=prune.tree(tree.price,best=10) #change the prune number.
+prune.tree.price=prune.tree(tree.price,best=12) #change the prune number.
 plot(prune.tree.price)
 text(prune.tree.price,pretty=0)
+pred_tree= predict(prune.tree.price, newdata=validation_set)
+rmse(validation_set$SalePrice, pred_tree)
+
 ```
 
 Performing RandomForest
 ```{r}
-tab.mtry=matrix(NA,nrow=ncol(train_imputed)-1,ncol=2)
+library(randomForest)
+tab.mtry=matrix(NA,nrow=ncol(train_subset)-1,ncol=2)
 
-for(i in 1:(ncol(train_imputed)-1)){
-  mtryval=i
-  bag.price=randomForest(SalePrice~.,data=train_imputed,mtry=mtryval,ntree=150) #change the dataset
-  bag.predict=predict(bag.price) #change the dataset
-  tab.mtry[i,1]=i
-  tab.mtry[i,2]=mean((bag.predict-train_imputed$SalePrice)^2)
-}
+#for(i in 1:(ncol(train_subset)-1)){
+#  mtryval=i
+# bag.price=randomForest(SalePrice~.,data=train_subset,mtry=mtryval,ntree=150) #change the dataset
+#  bag.predict=predict(bag.price,newdata=validation_set) #change the dataset
+#  tab.mtry[i,1]=i
+#  tab.mtry[i,2]=mean((bag.predict-validation_set$SalePrice)^2)
+#}
 tab.mtry.df=as.data.frame(tab.mtry)
-tab.mtry.df[which.min(tab.mtry.df[,2]),1]
+tab.mtry.df[,2]=tab.mtry.df[,2]^(1/2)
+tab.mtry.df[which.min(tab.mtry.df[,2]),1] #The mtry number that yields the lowest RMSE is 130
+
+forest.predict=predict(bag.price,newdata=testing_processed,mtry=130,ntree=150)
+forest.predict=as.data.frame(exp(forest.predict))
+
+which(colnames(train_subset)=='Exterior2ndWd Sdng')
 ```
+
+XGBOOST
+```{r}
+library(xgboost)
+label_train <- train_subset$SalePrice
+
+# put our testing & training data into two seperates Dmatrixs objects
+dtrain <- xgb.DMatrix(data = as.matrix(train_subset[,-51]), label= label_train)
+dvalid <- xgb.DMatrix(data = as.matrix(validation_set[,-51]))
+
+default_param<-list(
+        objective = "reg:linear",
+        booster = "gbtree",
+        eta=0.05, #default = 0.3
+        gamma=0,
+        max_depth=3, #default=6
+        min_child_weight=4, #default=1
+        subsample=1,
+        colsample_bytree=1
+)
+
+xgbcv <- xgb.cv(params = default_param, data = dtrain, nrounds = 500, 
+                nfold = 10, showsd = T, stratified = T, print_every_n = 40,
+                early_stopping_rounds = 10, maximize = F)
+```
+
+```{r}
+xgb_mod <- xgb.train(data = dtrain, params=default_param, nrounds = 454)
+XGBpred <- predict(xgb_mod, dvalid)
+rmse(validation_set$SalePrice, XGBpred)
+```
+
+```{r}
+library(Ckmeans.1d.dp)
+library(ggplot2)
+mat <- xgb.importance (feature_names = colnames(train_subset),model = xgb_mod)
+xgb.ggplot.importance(importance_matrix = mat[1:20], rel_to_first = TRUE)
+```
+
+Timing of the CVs
+
+```{r}
+Lasso_Time <- function(train_subset,my_control_lasso,lassoGrid){
+  lasso_mod <- train(x=train_subset[, -51],
+                   y=train_subset$SalePrice,
+                   method='glmnet', 
+                   trControl= my_control_lasso, tuneGrid=lassoGrid) 
+
+}
+```
+
+```{r}
+Ridge_Time <-function(train_subset,my_control_ridge,ridgeGrid){
+  ridge_mod <- train(x=train_subset[, -51],
+                   y=train_subset$SalePrice,
+                   method='glmnet', 
+                   trControl= my_control_ridge, tuneGrid=ridgeGrid) 
+  
+}
+```
+
+```{r}
+SVM_Time<-function(train_subset,my_control_svm,svmGrid){
+  svm_mod <- train(x=train_subset[, -51],
+                   y=train_subset$SalePrice,
+                   method='svmLinear', 
+                   trControl= my_control_svm, tuneGrid=svmGrid)
+}
+```
+
+```{r}
+Decision_Tree_Time <- function(train_subset){
+  library(tree)
+
+  tree.price=tree(SalePrice~.,data=train_subset)
+  cv.tree.price=cv.tree(tree.price)
+
+}
+```
+
+```{r}
+randomforest_time<-function(train_subset){
+  bag.price=randomForest(SalePrice~.,data=train_subset,mtry=130,ntree=150)
+  rfcv(train_subset[,-51],train_subset[,51],mtry=function(p) max(1, floor(sqrt(p))))
+}
+```
+
+
+```{r}
+XGBoost_Time <-function(dtrain){
+  default_param<-list(
+        objective = "reg:linear",
+        booster = "gbtree",
+        eta=0.05, #default = 0.3
+        gamma=0,
+        max_depth=3, #default=6
+        min_child_weight=4, #default=1
+        subsample=1,
+        colsample_bytree=1)
+
+xgbcv <- xgb.cv(params = default_param, data = dtrain, nrounds = 500, 
+                nfold = 10, showsd = T, stratified = T, print_every_n = 40,
+                early_stopping_rounds = 10, maximize = F)
+  
+}
+```
+
+```{r}
+microbenchmark(Lasso_Time(train_subset,my_control_lasso,lassoGrid),
+               
+               Ridge_Time(train_subset,my_control_ridge,ridgeGrid),
+               
+               SVM_Time(train_subset,my_control_svm,svmGrid),
+               
+               Decision_Tree_Time(tree.price),
+               
+               XGBoost_Time(dtrain),
+               
+               times=1)
+```
+
+
+
