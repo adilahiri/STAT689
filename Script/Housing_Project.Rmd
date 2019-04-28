@@ -187,6 +187,10 @@ combined_imputed$MoSold = as.character(combined_imputed$MoSold)
 We will now perform label encoding for columns where the ordering is important
 
 ```{r}
+preserved_imputed=combined_imputed
+```
+
+```{r}
 library(caret)
 cols = c("BsmtQual", "BsmtCond", "GarageQual", "GarageCond",
          "ExterQual", "ExterCond", "HeatingQC", "KitchenQual",
@@ -237,12 +241,17 @@ for (c in cols) {
 
 Feature Engineering: Create a total surface area feature. 
 ```{r}
-combined_imputed$TotalSF = combined_imputed$TotalBsmtSF
-combined_imputed$X1stFlrSF + combined_imputed$X2ndFlrSF
-+combined_imputed$GrLivArea 
+combined_imputed$TotalSF = combined_imputed$TotalBsmtSF+
+  combined_imputed$X1stFlrSF+
+  combined_imputed$X2ndFlrSF+combined_imputed$GrLivArea 
+
 
 #combined_imputed$TotalSF = combined_imputed$TotalBsmtSF
 #+combined_imputed$GrLivArea 
+
+
+drop<-c("TotalBsmtSF","X2ndFlrSF","X1stFlrSF","GrLivArea")
+combined_imputed<-combined_imputed %>% select(-one_of(drop))
 ```
 
 
@@ -253,6 +262,7 @@ i <- sapply(combined_imputed, is.factor)
 combined_imputed[i] <- lapply(combined_imputed[i], as.character)
 ```
 
+
 ```{r}
 feature_classes <- sapply(names(combined_imputed), function(x) {
     class(combined_imputed[[x]])
@@ -260,12 +270,14 @@ feature_classes <- sapply(names(combined_imputed), function(x) {
 
 ```
 
-
 ```{r}
 
 numeric_feats <- names(feature_classes[feature_classes != "character"])
 print(numeric_feats)
 ```
+
+
+
 
 ```{r}
 
@@ -312,29 +324,32 @@ dim(combined_imputed)
 training_processed <- combined_imputed[1:1460, ] # use in models
 testing_processed<- combined_imputed[1461:2919, ] # use in models
 
-colnames(training_processed)[53]<-"MSZoningC_all"
-colnames(testing_processed)[53]<-"MSZoningC_all"
-
-colnames(training_processed)[135]<-"RoofMatlTarGrv"
-colnames(testing_processed)[135]<-"RoofMatlTarGrv"
-
-colnames(training_processed)[151]<-"Exterior1stWdSdng"
-colnames(testing_processed)[151]<-"Exterior1stWdSdng"
-
-colnames(training_processed)[155]<-"Exterior2ndBrkCmn"
-colnames(testing_processed)[155]<-"Exterior2ndBrkCmn"
-
-colnames(training_processed)[167]<-"Exterior2ndWdSdng"
-colnames(testing_processed)[167]<-"Exterior2ndWdSdng"
-
-colnames(training_processed)[168]<-"Exterior2ndWdShng"
-colnames(testing_processed)[168]<-"Exterior2ndWdShng"
-
 
 
 
 ```
 
+
+
+```{r}
+colnames(training_processed)[53-4]<-"MSZoningC_all"
+colnames(testing_processed)[53-4]<-"MSZoningC_all"
+
+colnames(training_processed)[135-4]<-"RoofMatlTarGrv"
+colnames(testing_processed)[135-4]<-"RoofMatlTarGrv"
+
+colnames(training_processed)[151-4]<-"Exterior1stWdSdng"
+colnames(testing_processed)[151-4]<-"Exterior1stWdSdng"
+
+colnames(training_processed)[155-4]<-"Exterior2ndBrkCmn"
+colnames(testing_processed)[155-4]<-"Exterior2ndBrkCmn"
+
+colnames(training_processed)[167-4]<-"Exterior2ndWdSdng"
+colnames(testing_processed)[167-4]<-"Exterior2ndWdSdng"
+
+colnames(training_processed)[168-4]<-"Exterior2ndWdShng"
+colnames(testing_processed)[168-4]<-"Exterior2ndWdShng"
+```
 
 We will now divide the training set further to create a validation set. 
 ```{r}
@@ -371,28 +386,29 @@ Lasso Model
 ```{r}
 
 set.seed(123)
-cv_lasso = cv.glmnet(as.matrix(train_subset[, -51]), train_subset[, 51])
+cv_lasso = cv.glmnet(as.matrix(train_subset[, -47]), train_subset[, 47])
 
 ## Predictions
-preds <- predict(cv_lasso, newx = as.matrix(validation_set[, -51]), s = "lambda.min")
+preds <- predict(cv_lasso, newx = as.matrix(validation_set[, -47]), s = "lambda.min")
 rmse(validation_set$SalePrice, preds)
 ```
 
 
 ```{r}
+set.seed(123)
 my_control_lasso <-trainControl(method="cv", number=5)
 lassoGrid <- expand.grid(alpha = 1, lambda = seq(0.001,0.1,by = 0.0005))
 
-lasso_mod <- train(x=train_subset[, -51],
+lasso_mod <- train(x=train_subset[, -47],
                    y=train_subset$SalePrice,
-                   method='glmnet', 
+                   method='glmnet', preProcess = c("scale"),
                    trControl= my_control_lasso, tuneGrid=lassoGrid) 
 
 lasso_mod$bestTune
 min(lasso_mod$results$RMSE)
 
 preds_lasso <- predict(lasso_mod,
-                       validation_set[, -51], 
+                       validation_set[, -47], 
                        s = "lambda.min")
 
 rmse(validation_set$SalePrice, preds_lasso)
@@ -400,16 +416,25 @@ rmse(validation_set$SalePrice, preds_lasso)
 lassoVarImp <- varImp(lasso_mod,scale=F)
 lassoImportance <- lassoVarImp$importance
 
-lassoImportance[order(-lassoImportance$Overall), , drop = FALSE]
+a<-lassoImportance[order(-lassoImportance$Overall), , drop = FALSE]
+a<-as.data.frame(a)
+a<-a[1:20,,drop=FALSE]
+a$Features<-rownames(a)
+names(a)[1]<-paste("Importance")
+require("gridExtra")
+p <-ggplot(a, aes(x = reorder(Features, Importance), y = Importance))
+p<-p+geom_bar(stat = "identity") + coord_flip()
+grid.arrange(arrangeGrob(p))
 ```
 
 Ridge Model
 
 ```{r}
+set.seed(123)
 my_control_ridge <-trainControl(method="cv", number=5)
 ridgeGrid <- expand.grid(alpha = 0, lambda = 10^seq(10,-2, length =100))
 
-ridge_mod <- train(x=train_subset[, -51],
+ridge_mod <- train(x=train_subset[, -47],
                    y=train_subset$SalePrice,
                    method='glmnet', 
                    trControl= my_control_ridge, tuneGrid=ridgeGrid) 
@@ -417,7 +442,7 @@ ridge_mod <- train(x=train_subset[, -51],
 min(ridge_mod$results$RMSE)
 
 preds_ridge <- predict(ridge_mod,
-                       validation_set[, -51], 
+                       validation_set[, -47], 
                        s = "lambda.min")
 
 rmse(validation_set$SalePrice, preds_ridge)
@@ -436,51 +461,50 @@ ridgeImportance[order(-lassoImportance$Overall), , drop = FALSE]
 ```{r}
 library(e1071)
 library(mlbench)
-
-
+set.seed(123)
 
 my_control_svm <-trainControl(method="cv", number=5)
 svmGrid <- expand.grid(C=c(0.01,0.1,1,10))
 
-svm_mod <- train(x=train_subset[, -51],
+svm_mod <- train(x=train_subset[, -47],
                    y=train_subset$SalePrice,
                    method='svmLinear', 
-                   trControl= my_control_svm, tuneGrid=svmGrid) 
+                   preProcess = c("scale"),
+                   trControl= my_control_svm, tuneGrid=svmGrid,tuneLength = 10) 
 
 
 
-
-
-
-#model_svm<-tune(method = 'svm',train.x=train_subset[, -51],train.y=train_subset[,51],ranges = list( cost=c(0.001, 0.01, 0.1, 1,2,3,4,6,5,10,100)))
-
-
-
-
-
-#best.linear = model_svm$best.model
-#tune.test = predict(best.linear, newdata=validation_set[,-51])
-svm_predict<- predict(svm_mod, newdata=validation_set[,-51])
+svm_predict<- predict(svm_mod, newdata=validation_set[,-47])
 rmse(validation_set$SalePrice, svm_predict)
 ```
 
 
-
 Performing Tree Regression
+
 ```{r}
-library(tree)
-tree.price=tree(SalePrice~.,data=train_subset) #change the dataset
-plot(tree.price)
-text(tree.price,pretty=0)
-cv.tree.price=cv.tree(tree.price)
-plot(cv.tree.price$size,cv.tree.price$dev,type='b') 
-prune.tree.price=prune.tree(tree.price,best=12) #change the prune number.
-plot(prune.tree.price)
-text(prune.tree.price,pretty=0)
-pred_tree= predict(prune.tree.price, newdata=validation_set)
-rmse(validation_set$SalePrice, pred_tree)
+library(rpart)
+my_control_dt <-trainControl(method="cv", number=5)
+
+prune.control = rpart.control(minsplit = 12, 
+                    minbucket =  round(12/3), cp = 0.01, 
+                    maxcompete = 4, maxsurrogate = 5, usesurrogate = 2,
+                    xval = 10, surrogatestyle = 0, maxdepth = 30 )
+
+
+dt_mod <- train(x=train_subset[, -47],
+                   y=train_subset$SalePrice,
+                   method='rpart',
+                   trControl= my_control_dt, control =prune.control,
+                   tuneLength = 10) 
+
+
+
+dt_predict<- predict(dt_mod, newdata=validation_set[,-47])
+rmse(validation_set$SalePrice, dt_predict)
+
 
 ```
+
 
 Performing RandomForest
 ```{r}
@@ -497,44 +521,66 @@ for(i in 1:(ncol(train_subset)-1)){
 tab.mtry.df=as.data.frame(tab.mtry)
 tab.mtry.df[which.min(tab.mtry.df[,2]),1]
 
-which(colnames(train_subset)=='Exterior2ndWd Sdng')
 ```
+
+
+
+
+```{r}
+
+my_control_rf <-trainControl(method="cv", number=5,verboseIter = T)
+
+RF_Grid <-expand.grid(mtry=c(13,155,140,130,180,145,230))
+
+
+
+RF_mod <- train(x=train_subset[, -47],
+                   y=train_subset$SalePrice,
+                   method='rf',
+                   trControl= my_control_rf, tuneGrid=RF_Grid,ntree=150,
+                   tuneLength = 10)
+RF_predict<- predict(RF_mod, newdata=validation_set[,-47])
+rmse(validation_set$SalePrice, RF_predict)
+```
+
+
+
 
 XGBOOST
 ```{r}
 library(xgboost)
 label_train <- train_subset$SalePrice
+my_control_xgb <-trainControl(method="cv", number=5,verboseIter = T)
 
 # put our testing & training data into two seperates Dmatrixs objects
-dtrain <- xgb.DMatrix(data = as.matrix(train_subset[,-51]), label= label_train)
-dvalid <- xgb.DMatrix(data = as.matrix(validation_set[,-51]))
+dtrain <- xgb.DMatrix(data = as.matrix(train_subset[,-47]), label= label_train)
+dvalid <- xgb.DMatrix(data = as.matrix(validation_set[,-47]))
 
-default_param<-list(
-        objective = "reg:linear",
-        booster = "gbtree",
-        eta=0.05, #default = 0.3
-        gamma=0,
-        max_depth=3, #default=6
-        min_child_weight=4, #default=1
-        subsample=1,
-        colsample_bytree=1
-)
+xgbTreeGrid <- expand.grid(nrounds = 454, max_depth =3,
+                           eta = 0.05, gamma =c(0,0.001,1,0.1),
+                           colsample_bytree = 1.0,
+                           min_child_weight = 3,subsample = 1.0 )
 
-xgbcv <- xgb.cv(params = default_param, data = dtrain, nrounds = 500, 
-                nfold = 10, showsd = T, stratified = T, print_every_n = 40,
-                early_stopping_rounds = 10, maximize = F)
-```
 
-```{r}
-xgb_mod <- xgb.train(data = dtrain, params=default_param, nrounds = 454)
-XGBpred <- predict(xgb_mod, dvalid)
-rmse(validation_set$SalePrice, XGBpred)
+
+xgb_mod <- train(x=train_subset[, -47],
+                   y=train_subset$SalePrice,
+                   method='xgbTree',
+                   preProcess = c("scale"),
+                   trControl= my_control_xgb, tuneGrid=xgbTreeGrid,
+                   tuneLength = 20)
+
+
+
+xgb_predict<- predict(xgb_mod, newdata=validation_set[,-47])
+rmse(validation_set$SalePrice, xgb_predict)
+
 ```
 
 ```{r}
 library(Ckmeans.1d.dp)
 library(ggplot2)
-mat <- xgb.importance (feature_names = colnames(train_subset),model = xgb_mod)
+mat <- xgb.importance (feature_names = colnames(train_subset[,-47]),model = xgb_mod)
 xgb.ggplot.importance(importance_matrix = mat[1:20], rel_to_first = TRUE)
 ```
 
@@ -542,7 +588,7 @@ Timing of the CVs
 
 ```{r}
 Lasso_Time <- function(train_subset,my_control_lasso,lassoGrid){
-  lasso_mod <- train(x=train_subset[, -51],
+                   lasso_mod <- train(x=train_subset[, -47],
                    y=train_subset$SalePrice,
                    method='glmnet', 
                    trControl= my_control_lasso, tuneGrid=lassoGrid) 
@@ -552,7 +598,7 @@ Lasso_Time <- function(train_subset,my_control_lasso,lassoGrid){
 
 ```{r}
 Ridge_Time <-function(train_subset,my_control_ridge,ridgeGrid){
-  ridge_mod <- train(x=train_subset[, -51],
+  ridge_mod <- train(x=train_subset[, -47],
                    y=train_subset$SalePrice,
                    method='glmnet', 
                    trControl= my_control_ridge, tuneGrid=ridgeGrid) 
@@ -562,41 +608,51 @@ Ridge_Time <-function(train_subset,my_control_ridge,ridgeGrid){
 
 ```{r}
 SVM_Time<-function(train_subset,my_control_svm,svmGrid){
-  svm_mod <- train(x=train_subset[, -51],
+svm_mod <- train(x=train_subset[, -47],
                    y=train_subset$SalePrice,
                    method='svmLinear', 
-                   trControl= my_control_svm, tuneGrid=svmGrid)
+                   preProcess = c("scale"),
+                   trControl= my_control_svm, tuneGrid=svmGrid,tuneLength = 10)
 }
 ```
 
 ```{r}
-Decision_Tree_Time <- function(train_subset){
-  library(tree)
+Decision_Tree_Time <- function(train_subset,my_control_dt,prune.control){
 
-  tree.price=tree(SalePrice~.,data=train_subset)
-  cv.tree.price=cv.tree(tree.price)
+  dt_mod <- train(x=train_subset[, -47],
+                   y=train_subset$SalePrice,
+                   method='rpart',
+                   trControl= my_control_dt, control =prune.control,
+                   tuneLength = 10) 
 
 }
 ```
 
 ```{r}
-XGBoost_Time <-function(dtrain){
-  default_param<-list(
-        objective = "reg:linear",
-        booster = "gbtree",
-        eta=0.05, #default = 0.3
-        gamma=0,
-        max_depth=3, #default=6
-        min_child_weight=4, #default=1
-        subsample=1,
-        colsample_bytree=1)
-
-xgbcv <- xgb.cv(params = default_param, data = dtrain, nrounds = 500, 
-                nfold = 10, showsd = T, stratified = T, print_every_n = 40,
-                early_stopping_rounds = 10, maximize = F)
+XGBoost_Time <-function(train_subset,my_control_xgb,xgbTreeGrid){
+  
+xgb_mod <- train(x=train_subset[, -47],
+                   y=train_subset$SalePrice,
+                   method='xgbTree',
+                   preProcess = c("scale"),
+                   trControl= my_control_xgb, tuneGrid=xgbTreeGrid,
+                   tuneLength = 20)
   
 }
 ```
+
+```{r}
+Random_Forest_Time<- function(train_subset,my_control_rf,RF_Grid){
+
+RF_mod <- train(x=train_subset[, -47],
+                   y=train_subset$SalePrice,
+                   method='rf',
+                   trControl= my_control_rf, tuneGrid=RF_Grid,ntree=150,
+                   tuneLength = 10)
+
+}
+```
+
 
 ```{r}
 microbenchmark(Lasso_Time(train_subset,my_control_lasso,lassoGrid),
@@ -605,9 +661,12 @@ microbenchmark(Lasso_Time(train_subset,my_control_lasso,lassoGrid),
                
                SVM_Time(train_subset,my_control_svm,svmGrid),
                
-               Decision_Tree_Time(tree.price),
+               Decision_Tree_Time(train_subset,my_control_dt,prune.control),
                
-               XGBoost_Time(dtrain),
+               Random_Forest_Time(train_subset,my_control_rf,RF_Grid),
+
+               
+               XGBoost_Time(train_subset,my_control_xgb,xgbTreeGrid),
                
                times=1)
 ```
